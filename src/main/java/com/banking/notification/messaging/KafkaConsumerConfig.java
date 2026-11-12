@@ -1,5 +1,6 @@
 package com.banking.notification.messaging;
 
+import com.banking.notification.exception.PermanentDeliveryException;
 import com.banking.notification.messaging.payload.OtpIssuedPayload;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
@@ -40,7 +41,8 @@ public class KafkaConsumerConfig {
         backOff.setMaxInterval(10_000L);
 
         DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff);
-        handler.addNotRetryableExceptions(InvalidEventException.class, EventCryptoException.class);
+        handler.addNotRetryableExceptions(InvalidEventException.class, EventCryptoException.class,
+                PermanentDeliveryException.class);
         return handler;
     }
 

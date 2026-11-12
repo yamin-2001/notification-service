@@ -1,5 +1,6 @@
 package com.banking.notification.exception;
 
+import com.banking.notification.observability.CurrentTrace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -17,6 +18,11 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    private final CurrentTrace currentTrace;
+
+    public GlobalExceptionHandler(CurrentTrace currentTrace) {
+        this.currentTrace = currentTrace;
+    }
 
     @ExceptionHandler(InvalidTemplateRequestException.class)
     public ResponseEntity<ErrorResponse> handleInvalidTemplate(InvalidTemplateRequestException ex) {
@@ -62,14 +68,27 @@ public class GlobalExceptionHandler {
         log.error("Unhandled error in the notification service", ex);
         return build(HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong");
     }
+    @ExceptionHandler(PermanentDeliveryException.class)
+    public ResponseEntity<ErrorResponse> handlePermanentDelivery(PermanentDeliveryException ex) {
+        return build(HttpStatus.BAD_GATEWAY, "EMAIL_PERMANENT_FAILURE", ex.getMessage());
+    }
 
     private ResponseEntity<ErrorResponse> build(HttpStatus status, String message) {
-        ErrorResponse body = new ErrorResponse(
+        return build(status, status.name(), message);
+    }
+
+    private ResponseEntity<ErrorResponse> build(HttpStatus status, String code, String message) {
+        return ResponseEntity.status(status).body(body(status, code, message));
+    }
+
+    private ErrorResponse body(HttpStatus status, String code, String message) {
+        return new ErrorResponse(
                 LocalDateTime.now(),
                 status.value(),
                 status.getReasonPhrase(),
-                message
+                code,
+                message,
+                currentTrace.traceId()
         );
-        return ResponseEntity.status(status).body(body);
     }
 }

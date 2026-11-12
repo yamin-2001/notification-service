@@ -1,6 +1,8 @@
-# notification-service
+# Notification Service
 
 > Owns outbound e-mail for the banking platform: it renders a fixed set of templates, sends them over SMTP, records every attempt in `notification_logs`, and announces a failed OTP delivery back to the saga. Application port **8087**, management/metrics port **18087**.
+
+## Table of Contents
 
 - [What It Does](#what-it-does)
 - [Architecture At A Glance](#architecture-at-a-glance)
@@ -136,7 +138,7 @@ Templates live in `NotificationTemplates`. The subject and the body are fixed st
 
 A required param that is missing, null or blank produces `"Missing template param: <key>"` and HTTP 400. `GENERAL` on this endpoint produces `"GENERAL has no template, use /internal/notifications/email"` and HTTP 400.
 
-### Error Response Shape
+## Error Response Shape
 
 Every non-2xx response uses the same body — `ErrorResponse`:
 
@@ -192,7 +194,6 @@ Entity: `ProcessedEvent`, `@Entity @Table(name = "processed_events")`. This is t
 | `id` | `String` | no | `@Id`, `length = 160`; the value is `"<handler>:<eventId>"`, e.g. `"otp-events:6b0a2f0e-…"` |
 | `processed_at` | `Instant` | no | When the claim was taken |
 
-Repository: `ProcessedEventRepository extends JpaRepository<ProcessedEvent, String>`.
 
 | Method | SQL | Purpose |
 |---|---|---|
@@ -605,11 +606,3 @@ curl -i http://localhost:8087/internal/notifications/nope
 * **`spring.mail.host` and `spring.mail.port` are not environment-driven.** They are fixed in `application.yaml` at `smtp.gmail.com` and `587`.
 * **The decrypted OTP code is never logged**, but it does travel over the network in the REST call from `otp-service` to `/internal/notifications/templated` as the `params.otp` value. That hop is plain HTTP.
 * **A failed send does not roll back the claim** unless the claim could be released. The original message stays in the DLT and can be replayed by hand.
-
-# notification-service
-
-**Author:** [Jahid Hasan](https://github.com/Md-Jahid-Hasan-10)
-
-**Project:** Banking Microservices
-
-> Owns outbound e-mail for the banking platform: it renders a fixed set of templates, sends them over SMTP, records every attempt in `notification_logs`, and announces a failed OTP delivery back to the saga. Application port **8087**, management/metrics port **18087**.
