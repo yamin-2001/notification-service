@@ -33,13 +33,15 @@ management:
         client.calls: true
 spring:
   config:
-    import: optional:file:.env[.properties]
+    import:
+      - "optional:file:../.env[.properties]"
+      - "optional:file:.env[.properties]"
   application:
     name: notification-service
   datasource:
-    url: jdbc:postgresql://localhost:5433/notification_db
-    username: ${DB_USERNAME:banking_admin}
-    password: ${DB_PASSWORD:postgres}
+    url: ${DB_URL:jdbc:postgresql://127.0.0.1:5433/notification_db}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: update
@@ -93,7 +95,8 @@ app:
     max-body-length: 2048
   messaging:
     producer-name: notification-service
-    crypto-key: ${EVENT_CRYPTO_KEY:REDACTED}
+    # Must decode to exactly 32 bytes and match otp-service and user-service.
+    crypto-key: ${EVENT_CRYPTO_KEY}
   notification:
     # The link in the verification email is this address followed by the token.
     # Set VERIFY_URL to the address of your K1 verification page or endpoint.
