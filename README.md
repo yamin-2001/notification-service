@@ -163,11 +163,13 @@ Example:
 ## Database
 
 * URL: `jdbc:postgresql://localhost:5433/notification_db` → database name **`notification_db`**
-* Username: `${DB_USERNAME:banking_admin}`
-* Password: `${DB_PASSWORD:REDACTED}`
+* Username: `${DB_USERNAME}` — mandatory, no built-in default
+* Password: `${DB_PASSWORD}` — mandatory, no built-in default
 * `spring.jpa.hibernate.ddl-auto: update`, `spring.jpa.open-in-view: false`
 
-The database `notification_db` is created by `postgres/init/01-create-databases.sql`.
+Supply both through the root `.env` (see `.env.example`) or the environment.
+
+The database `notification_db` is created by `postgres-init/01-create-databases.sql`.
 
 ### Table `notification_logs`
 
@@ -201,7 +203,16 @@ Entity: `ProcessedEvent`, `@Entity @Table(name = "processed_events")`. This is t
 | `deleteClaim(id)` | `delete from processed_events where id = :id` | Releases the claim so a failed action can be retried. |
 | `deleteOlderThan(cutoff)` | JPQL `delete from ProcessedEvent p where p.processedAt < :cutoff` | Housekeeping, run by `ProcessedEventCleaner`. |
 
-**Schema repair.** `postgres/init/02-notification-processed-events.sql` and `postgres/init/04-repair-schema.sql` rename a legacy `event_id` column back to `id` and widen it to `varchar(160)`. This matters: a wrong column name broke `existsById()` and `insertIfAbsent()`, every mail went to the dead-letter topic, and nothing was sent. The scripts are idempotent and run against `notification_db`.
+**Schema note.** The `id` column is mapped as `varchar(160)` and the column must be named `id`, not `event_id`. This matters: a wrong column name breaks `existsById()` and `insertIfAbsent()`, every mail goes to the dead-letter topic, and nothing is sent.
+
+The entity `ProcessedEvent` maps `@Id @Column(length = 160) private String id;` and Hibernate keeps the table in shape through `ddl-auto: update`. There is **no repair script for this any more** — neither `postgres/init/02-notification-processed-events.sql` nor `04-repair-schema.sql` exists, and nothing runs them. If you hit the legacy-column error against a database that predates the rename, fix it by hand:
+
+```sql
+ALTER TABLE processed_events RENAME COLUMN event_id TO id;
+ALTER TABLE processed_events ALTER COLUMN id TYPE varchar(160);
+```
+
+The commands are idempotent in effect (the rename fails harmlessly if the column is already `id`). A fresh database never needs them.
 
 ### The cleanup job
 
@@ -307,7 +318,7 @@ Every topic has **3 partitions**. `notification.events` is kept for 7 days with 
 | `spring.application.name` | `notification-service` | Name registered with Eureka. |
 | `spring.datasource.url` | `jdbc:postgresql://localhost:5433/notification_db` | JDBC URL. `run-all.sh` overrides it with `jdbc:postgresql://127.0.0.1:5433/notification_db`. |
 | `spring.datasource.username` | `${DB_USERNAME:banking_admin}` | Database user. |
-| `spring.datasource.password` | `${DB_PASSWORD:REDACTED}` | Database password. |
+| `spring.datasource.password` | `${DB_PASSWORD}` | Database password. |
 | `spring.jpa.hibernate.ddl-auto` | `update` | Hibernate maintains the schema. |
 | `spring.jpa.open-in-view` | `false` | No session left open during view rendering. |
 | `spring.mail.host` | `smtp.gmail.com` | SMTP host. |
@@ -344,7 +355,7 @@ Every topic has **3 partitions**. `notification.events` is kept for 7 days with 
 | Name | Default | Meaning |
 |---|---|---|
 | `app.messaging.producer-name` | `notification-service` | The `producer` field of the published envelope. |
-| `app.messaging.crypto-key` | `${EVENT_CRYPTO_KEY:REDACTED}` | Base64 AES-256 key; must decode to 32 bytes. Used to decrypt `encryptedCode` and `encryptedToken`. |
+| `app.messaging.crypto-key` | `${EVENT_CRYPTO_KEY:<your event crypto key>}` | Base64 AES-256 key; must decode to 32 bytes. Used to decrypt `encryptedCode` and `encryptedToken`. |
 | `app.notification.verification-url` | `${VERIFY_URL:http://localhost:3000/verify.html?token=}` | Prefix of the verification link; the URL-encoded token is appended. |
 
 Binding class: `MessagingProperties` (`@ConfigurationProperties(prefix = "app.messaging")`, record `producerName`, `cryptoKey`).
@@ -354,10 +365,10 @@ Binding class: `MessagingProperties` (`@ConfigurationProperties(prefix = "app.me
 | Name | Default | Used for |
 |---|---|---|
 | `DB_USERNAME` | `banking_admin` | `spring.datasource.username` |
-| `DB_PASSWORD` | `REDACTED` | `spring.datasource.password` |
+| `DB_PASSWORD` | *(no default — mandatory)* | `spring.datasource.password` |
 | `MAIL_USERNAME` | **no default — required** | `spring.mail.username`; also the `From:` address of every mail |
 | `MAIL_PASSWORD` | **no default — required** | `spring.mail.password` |
-| `EVENT_CRYPTO_KEY` | `REDACTED` | `app.messaging.crypto-key` |
+| `EVENT_CRYPTO_KEY` | `<your event crypto key>` | `app.messaging.crypto-key` |
 | `VERIFY_URL` | `http://localhost:3000/verify.html?token=` | `app.notification.verification-url` |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | `spring.kafka.bootstrap-servers` |
 | `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5433/notification_db` | `run-all.sh` sets it to `jdbc:postgresql://127.0.0.1:5433/notification_db` |
@@ -436,10 +447,10 @@ Jar: `notification-service/target/notification-service-0.0.1-SNAPSHOT.jar`.
 ```bash
 cd notification-service
 export DB_USERNAME=banking_admin
-export DB_PASSWORD='REDACTED'
+export DB_PASSWORD='<your postgres password>'
 export MAIL_USERNAME='your-account@gmail.com'
 export MAIL_PASSWORD='your-app-password'
-export EVENT_CRYPTO_KEY='REDACTED'
+export EVENT_CRYPTO_KEY='<your event crypto key>'
 export VERIFY_URL='http://localhost:3000/verify.html?token='
 export KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 export SERVER_PORT=8087
@@ -582,7 +593,7 @@ curl -i http://localhost:8087/internal/notifications/nope
 | HTTP 400 with `"GENERAL has no template, use /internal/notifications/email"` | `GENERAL` was sent to the templated endpoint. | Use `POST /internal/notifications/email` for a free-form message. |
 | HTTP 400 with `"Recipient email format is invalid"` | The address does not pass `@Email`. | Check the address. |
 | The OTP mail never arrives and the message is in `otp.events.DLT` | The crypto keys of this service and `otp-service` differ, so the code cannot be decrypted. | Compare the `"Event crypto key fingerprint: {}"` line in both logs; set the same `EVENT_CRYPTO_KEY` in both. |
-| Every message ends up in the DLT and no mail is sent | The `processed_events` table has the legacy column `event_id` instead of `id`, so `existsById()` and `insertIfAbsent()` fail. | Run `postgres/init/02-notification-processed-events.sql` (or `04-repair-schema.sql`) against `notification_db`; it renames the column back to `id` and widens it to `varchar(160)`. |
+| Every message ends up in the DLT and no mail is sent | The `processed_events` table has the legacy column `event_id` instead of `id`, so `existsById()` and `insertIfAbsent()` fail. | Rename it by hand against `notification_db`: `ALTER TABLE processed_events RENAME COLUMN event_id TO id;` and `ALTER TABLE processed_events ALTER COLUMN id TYPE varchar(160);` |
 | No mail at all, but the service is healthy | The mail health indicator is disabled, so `UP` does not mean SMTP works. | Send a test mail with the curl example and check the SMTP credentials. |
 | A duplicate event arrives and no second mail is sent | The `(handler, eventId)` claim is already in `processed_events`. | Expected behaviour. Check `events.consumed{result="duplicate"}`. |
 | The mail arrives twice for one event | The claim was released after a failure and the retry re-ran the action. | Check `notification_logs` for two rows and the log for `"Could not release the processed-event claim"`. |
